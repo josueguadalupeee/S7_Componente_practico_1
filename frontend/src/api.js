@@ -17,7 +17,13 @@ export async function obtenerIdeas() {
   if (!respuesta.ok) {
     throw new Error('El servidor no pudo devolver las ideas');
   }
-  return respuesta.json();
+  try {
+    const datos = await respuesta.json();
+    if (!Array.isArray(datos)) throw new Error();
+    return datos;
+  } catch {
+    throw new Error('El servidor devolvió una lista de ideas inválida');
+  }
 }
 
 // POST /registros → envía una idea nueva.
@@ -34,6 +40,7 @@ export async function crearIdea(idea) {
     throw new Error(ERROR_CONEXION);
   }
 
-  const datos = await respuesta.json().catch(() => ({}));
+  const recibido = await respuesta.json().catch(() => ({}));
+  const datos = recibido && typeof recibido === 'object' && !Array.isArray(recibido) ? recibido : {};
   return { ok: respuesta.ok, status: respuesta.status, datos };
 }

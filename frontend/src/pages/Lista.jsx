@@ -1,12 +1,13 @@
 // Página de consulta de ideas (ruta /lista)
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { obtenerIdeas } from '../api.js';
 import { CATEGORIAS, ICONOS } from '../utils/categorias.js';
 import TarjetaIdea from '../components/TarjetaIdea.jsx';
 import Mensaje from '../components/Mensaje.jsx';
 
 function Lista() {
+  const { state } = useLocation();
   const [ideas, setIdeas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -68,6 +69,9 @@ function Lista() {
 
   return (
     <section>
+      {state?.registroCreado && (
+        <Mensaje tipo="exito">¡Tu idea fue publicada! Ya puedes consultarla en esta lista.</Mensaje>
+      )}
       <header className="pagina__cabecera">
         <span className="pagina__etiqueta">Explorar</span>
         <h1>Ideas publicadas</h1>
