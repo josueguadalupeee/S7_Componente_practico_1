@@ -1,51 +1,79 @@
-// Servicio de archivo: única parte del backend que lee y escribe el JSON.
+// Almacenamiento JSON para una sola instancia de Node.
+// La cola protege toda la operación leer → modificar → guardar, incluyendo la inicialización.
 const fs = require('fs/promises');
 const path = require('path');
+const crypto = require('crypto');
 
-// Ruta absoluta a backend/data/registros.json (no depende de desde dónde se ejecute node)
-const RUTA_ARCHIVO = path.join(__dirname, '..', '..', 'data', 'registros.json');
+const RUTA_ARCHIVO = process.env.REGISTROS_FILE
+  ? path.resolve(process.env.REGISTROS_FILE)
+  : path.join(__dirname, '..', '..', 'data', 'registros.json');
 
-// Lee todas las ideas guardadas. Si el archivo no existe, lo crea con [].
-async function leerRegistros() {
-  let contenido;
-  try {
-    contenido = await fs.readFile(RUTA_ARCHIVO, 'utf-8');
-  } catch (error) {
-    // ENOENT = el archivo no existe: lo creamos vacío y devolvemos una lista vacía
-    if (error.code === 'ENOENT') {
-      await guardarRegistros([]);
-      return [];
+function crearAlmacen(rutaArchivo) {
+  let cola = Promise.resolve();
+
+  function encolar(tarea) {
+    const operacion = cola.then(tarea);
+    // Una escritura fallida no bloquea las siguientes solicitudes.
+    cola = operacion.catch(() => {});
+    return operacion;
+  }
+
+  async function escribirArchivo(registros) {
+    const temporal = rutaArchivo + '.' + process.pid + '.' + crypto.randomUUID() + '.tmp';
+    let archivo;
+    try {
+      await fs.mkdir(path.dirname(rutaArchivo), { recursive: true });
+      archivo = await fs.open(temporal, 'wx', 0o600);
+      await archivo.writeFile(JSON.stringify(registros, null, 2), 'utf-8');
+      await archivo.sync();
+      await archivo.close();
+      archivo = undefined;
+      // El archivo anterior solo se reemplaza cuando el nuevo ya está completo.
+      await fs.rename(temporal, rutaArchivo);
+    } catch {
+      throw new Error('No se pudo guardar el archivo de registros');
+    } finally {
+      if (archivo) await archivo.close().catch(() => {});
+      await fs.unlink(temporal).catch(() => {});
     }
-    throw new Error('No se pudo leer el archivo de registros');
   }
 
-  // Un archivo vacío se trata como lista vacía
-  if (contenido.trim() === '') {
-    return [];
-  }
-
-  // Si el JSON está corrupto, lanzamos un error claro (la ruta responderá 500)
-  try {
-    const datos = JSON.parse(contenido);
-    if (!Array.isArray(datos)) {
-      throw new Error('formato');
+  async function leerArchivo() {
+    let contenido;
+    try {
+      contenido = await fs.readFile(rutaArchivo, 'utf-8');
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        await escribirArchivo([]);
+        return [];
+      }
+      throw new Error('No se pudo leer el archivo de registros');
     }
-    return datos;
-  } catch {
-    throw new Error('El archivo de registros está dañado (JSON inválido)');
+    if (contenido.trim() === '') return [];
+    try {
+      const datos = JSON.parse(contenido);
+      if (!Array.isArray(datos)) throw new Error('formato');
+      return datos;
+    } catch {
+      throw new Error('El archivo de registros está dañado (JSON inválido)');
+    }
   }
+
+  function leerRegistros() {
+    return encolar(leerArchivo);
+  }
+
+  function agregarRegistro(registro) {
+    return encolar(async () => {
+      const registros = await leerArchivo();
+      registros.push(registro);
+      await escribirArchivo(registros);
+      return registro;
+    });
+  }
+
+  return { leerRegistros, agregarRegistro };
 }
 
-// Sobrescribe el archivo con la lista completa de ideas.
-async function guardarRegistros(registros) {
-  try {
-    // Crea la carpeta data/ si no existe
-    await fs.mkdir(path.dirname(RUTA_ARCHIVO), { recursive: true });
-    // null, 2 = JSON con sangría para que sea legible a simple vista
-    await fs.writeFile(RUTA_ARCHIVO, JSON.stringify(registros, null, 2), 'utf-8');
-  } catch {
-    throw new Error('No se pudo guardar el archivo de registros');
-  }
-}
-
-module.exports = { leerRegistros, guardarRegistros };
+const almacen = crearAlmacen(RUTA_ARCHIVO);
+module.exports = { ...almacen, crearAlmacen };

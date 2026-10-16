@@ -1,7 +1,7 @@
 // Rutas de la API para las ideas: GET /registros y POST /registros
 const express = require('express');
 const crypto = require('crypto');
-const { leerRegistros, guardarRegistros } = require('../services/archivo');
+const { leerRegistros, agregarRegistro } = require('../services/archivo');
 const { validarIdea, leerInversion } = require('../validations/idea');
 
 const router = express.Router();
@@ -42,10 +42,8 @@ router.post('/', async (req, res, next) => {
       creadoEn: new Date().toISOString(),
     };
 
-    // 3. Leer lo que ya existe, agregar la nueva y guardar todo (no se pierden las anteriores)
-    const registros = await leerRegistros();
-    registros.push(nuevaIdea);
-    await guardarRegistros(registros);
+    // 3. La cola del servicio guarda la idea sin sobrescribir envíos concurrentes.
+    await agregarRegistro(nuevaIdea);
 
     // 4. Responder 201 (creado) con la idea guardada
     res.status(201).json(nuevaIdea);
